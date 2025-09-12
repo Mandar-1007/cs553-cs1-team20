@@ -1,0 +1,33 @@
+name: Sync to Hugging Face Space
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Push to Hugging Face Space (CS553-Team20/cs553-cs1-team20)
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -e
+          # Clean existing remote if re-run
+          git remote remove space 2>/dev/null || true
+          # Add Space as remote using token
+          git remote add space https://CS553-Team20:${HF_TOKEN}@huggingface.co/spaces/CS553-Team20/cs553-cs1-team20
+          # Push main to Space
+          git push space main --force
