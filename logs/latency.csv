@@ -1,0 +1,9 @@
+timestamp_utc,backend,text_len,latency_ms
+2025-09-13T18:59:33.195745,API (InferenceClient),30,184.61
+2025-09-13T19:01:09.026398,API (InferenceClient),31,3505.14
+2025-09-13T19:01:43.928440,API (InferenceClient),98,117.24
+2025-09-13T19:02:20.916936,API (InferenceClient),97,56.65
+2025-09-13T19:03:41.925988,Local (Transformers pipeline),30,59.97
+2025-09-13T19:04:42.654858,Local (Transformers pipeline),31,41.68
+2025-09-13T19:05:29.219033,Local (Transformers pipeline),98,75.02
+2025-09-13T19:06:09.475895,Local (Transformers pipeline),97,63.12
