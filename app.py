@@ -22,19 +22,16 @@ def download_csv(rows: List[Dict[str, Any]]) -> str:
     """Write rows to a temp CSV and return its path for download."""
     tmp_path = "/tmp/latency.csv" if os.name != "nt" else os.path.join(os.getcwd(), "latency.csv")
     os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
-    write_header = True
     with open(tmp_path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=HEADER)
-        if write_header:
-            w.writeheader()
-        for r in rows:
+        w.writeheader()
+        for r in rows or []:
             w.writerow(r)
     return tmp_path
 
 def predict_and_log(text, backend, rows_state: List[Dict[str, Any]]):
     text = (text or "").strip()
     if not text:
-        # Return unchanged table/state
         return {"error": "Please enter some text."}, "", rows_state, rows_state
 
     start = time.perf_counter()
@@ -47,7 +44,6 @@ def predict_and_log(text, backend, rows_state: List[Dict[str, Any]]):
         result = {"error": str(e)}
     latency_ms = (time.perf_counter() - start) * 1000
 
-    # Append new row in-memory
     new_row = make_row(backend, text, latency_ms)
     rows_state = (rows_state or []) + [new_row]
 
@@ -55,9 +51,9 @@ def predict_and_log(text, backend, rows_state: List[Dict[str, Any]]):
 
 
 with gr.Blocks(theme=gr.themes.Base(), fill_height=True) as demo:
-    rows_state = gr.State([])  # holds list[dict] of rows
+    rows_state = gr.State([])
 
-    gr.Markdown(
+    gr.Mardown = gr.Markdown( 
         """
         # Case Study 1 — Sentiment Analysis
         Compare two backends:
@@ -104,13 +100,8 @@ with gr.Blocks(theme=gr.themes.Base(), fill_height=True) as demo:
                 wrap=True,
                 value=[],
             )
-            download_btn = gr.DownloadButton(
-                label="Download CSV",
-                value=None,
-                file_name="latency.csv"
-            )
+            download_btn = gr.DownloadButton(label="Download CSV")
 
-    # Wire actions
     submit_btn.click(
         fn=predict_and_log,
         inputs=[text_input, backend, rows_state],
@@ -118,20 +109,18 @@ with gr.Blocks(theme=gr.themes.Base(), fill_height=True) as demo:
     )
 
     def clear_all():
-        return "", "API (InferenceClient)", "", [], []  # text, backend, latency, table(rows), state(rows)
+        return "", "API (InferenceClient)", "", [], []
 
     clear_btn.click(
         fn=clear_all,
         outputs=[text_input, backend, latency, table, rows_state],
     )
 
-    # Download current rows to CSV
     download_btn.click(
         fn=download_csv,
         inputs=[rows_state],
         outputs=download_btn,
     )
-
 
 if __name__ == "__main__":
     demo.launch()
