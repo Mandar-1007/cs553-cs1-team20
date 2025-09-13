@@ -3,28 +3,39 @@ import time
 import os
 import csv
 import datetime
+from typing import List, Dict, Any
 
 from inference_api import run_inference_api
 from inference_local import run_inference_local
 
-LOG_PATH = os.path.join("logs", "latency.csv")
+HEADER = ["timestamp_utc", "backend", "text_len", "latency_ms"]
 
-def log_latency(backend: str, text: str, latency_ms: float):
-    """Append a row to logs/latency.csv (auto-creates folder/file)."""
-    os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
-    header = ["timestamp_utc", "backend", "text_len", "latency_ms"]
-    row = [datetime.datetime.utcnow().isoformat(), backend, len(text or ""), f"{latency_ms:.2f}"]
-    write_header = not os.path.exists(LOG_PATH)
-    with open(LOG_PATH, "a", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
+def make_row(backend: str, text: str, latency_ms: float) -> Dict[str, Any]:
+    return {
+        "timestamp_utc": datetime.datetime.utcnow().isoformat(),
+        "backend": backend,
+        "text_len": len(text or ""),
+        "latency_ms": float(f"{latency_ms:.2f}"),
+    }
+
+def download_csv(rows: List[Dict[str, Any]]) -> str:
+    """Write rows to a temp CSV and return its path for download."""
+    tmp_path = "/tmp/latency.csv" if os.name != "nt" else os.path.join(os.getcwd(), "latency.csv")
+    os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
+    write_header = True
+    with open(tmp_path, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=HEADER)
         if write_header:
-            w.writerow(header)
-        w.writerow(row)
+            w.writeheader()
+        for r in rows:
+            w.writerow(r)
+    return tmp_path
 
-def predict(text, backend):
+def predict_and_log(text, backend, rows_state: List[Dict[str, Any]]):
     text = (text or "").strip()
     if not text:
-        return {"error": "Please enter some text."}, ""
+        # Return unchanged table/state
+        return {"error": "Please enter some text."}, "", rows_state, rows_state
 
     start = time.perf_counter()
     try:
@@ -36,25 +47,24 @@ def predict(text, backend):
         result = {"error": str(e)}
     latency_ms = (time.perf_counter() - start) * 1000
 
-    # record latency for comparison
-    try:
-        log_latency(backend, text, latency_ms)
-    except Exception:
-        # logging failures should never break the UI
-        pass
+    # Append new row in-memory
+    new_row = make_row(backend, text, latency_ms)
+    rows_state = (rows_state or []) + [new_row]
 
-    return result, f"{latency_ms:.2f} ms"
+    return result, f"{latency_ms:.2f} ms", rows_state, rows_state
 
 
 with gr.Blocks(theme=gr.themes.Base(), fill_height=True) as demo:
+    rows_state = gr.State([])  # holds list[dict] of rows
+
     gr.Markdown(
         """
         # Case Study 1 — Sentiment Analysis
-        This application demonstrates two approaches to running a machine learning model:
-        1) Using a remote API (Hugging Face Inference Client), and
-        2) Running the model locally within this Space using a Transformers pipeline.
+        Compare two backends:
+        1) Remote API (Hugging Face Inference Client)
+        2) Local Transformers pipeline
 
-        Enter text, choose the backend, and compare performance and results.
+        Enter text, choose backend, and compare latency.
         """
     )
 
@@ -73,7 +83,9 @@ with gr.Blocks(theme=gr.themes.Base(), fill_height=True) as demo:
             gr.Examples(
                 examples=[
                     ["I really enjoyed this product.", "API (InferenceClient)"],
-                    ["The service was disappointing.", "Local (Transformers pipeline)"],
+                    ["This was a terrible experience.", "Local (Transformers pipeline)"],
+                    ["The restaurant exceeded my expectations with excellent food, great service, and a cozy atmosphere.", "API (InferenceClient)"],
+                    ["The movie was unnecessarily long, the plot was confusing, and the characters were poorly written.", "Local (Transformers pipeline)"],
                 ],
                 inputs=[text_input, backend],
                 label="Example Inputs"
@@ -84,14 +96,42 @@ with gr.Blocks(theme=gr.themes.Base(), fill_height=True) as demo:
 
         with gr.Column(scale=1):
             output = gr.JSON(label="Prediction Result")
-            latency = gr.Textbox(label="Latency", interactive=False)
+            latency = gr.Textbox(label="Latency (ms)", interactive=False)
+            table = gr.Dataframe(
+                headers=HEADER,
+                label="Latency log (session)",
+                interactive=False,
+                wrap=True,
+                value=[],
+            )
+            download_btn = gr.DownloadButton(
+                label="Download CSV",
+                value=None,
+                file_name="latency.csv"
+            )
 
-    submit_btn.click(fn=predict, inputs=[text_input, backend], outputs=[output, latency])
+    # Wire actions
+    submit_btn.click(
+        fn=predict_and_log,
+        inputs=[text_input, backend, rows_state],
+        outputs=[output, latency, table, rows_state],
+    )
+
+    def clear_all():
+        return "", "API (InferenceClient)", "", [], []  # text, backend, latency, table(rows), state(rows)
 
     clear_btn.click(
-        fn=lambda: ("", "API (InferenceClient)", "", None),
-        outputs=[text_input, backend, latency, output],
+        fn=clear_all,
+        outputs=[text_input, backend, latency, table, rows_state],
     )
+
+    # Download current rows to CSV
+    download_btn.click(
+        fn=download_csv,
+        inputs=[rows_state],
+        outputs=download_btn,
+    )
+
 
 if __name__ == "__main__":
     demo.launch()
