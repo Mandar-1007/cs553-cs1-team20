@@ -1,92 +1,41 @@
-name: Build & Notify Discord
+name: Notify Discord on workflow completion
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - CI - Local Inference Tests
+      - Sync to Hugging Face Space
+    types:
+      - completed
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # ----- Your real build/test steps here -----
-      - name: Example build step
-        run: echo "Pretend we're building…"
-      - name: Example test step
-        run: echo "Pretend we're testing…"
-      # -------------------------------------------
   notify:
-    if: always()
-    needs: [build]
     runs-on: ubuntu-latest
-
+    if: always()   
     steps:
-      - name: Secret visibility check
-        if: ${{ secrets.DISCORD_WEBHOOK_URL == '' }}
+      - name: Build message
+        id: msg
         run: |
-          echo "DISCORD_WEBHOOK_URL is NOT visible to this workflow (empty or not set)."
-          echo "If you used an Environment secret, set 'jobs.notify.environment: <name>' or move it to Repository secrets."
-          exit 1
-  
-      - name: Post status to Discord
+          SHORT_SHA="${{ github.event.workflow_run.head_sha }}"
+          SHORT_SHA="${SHORT_SHA:0:7}"
+          STATUS="${{ github.event.workflow_run.conclusion }}"    # success, failure, cancelled
+          ACTOR="${{ github.event.workflow_run.actor.login }}"
+          REPO="${{ github.repository }}"
+          RUN_ID="${{ github.event.workflow_run.id }}"
+          WORKFLOW_NAME="${{ github.event.workflow.name }}"
+
+          # Choose emoji by status
+          EMOJI="✅"
+          if [ "$STATUS" != "success" ]; then EMOJI="❌"; fi
+
+          echo "content=${EMOJI} ${WORKFLOW_NAME} for ${REPO} *${STATUS}* by ${ACTOR} @ \${SHORT_SHA}\
+          https://github.com/${REPO}/actions/runs/${RUN_ID}" >> $GITHUB_OUTPUT
+
+      - name: Send to Discord
         env:
-          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-          RUN_NUMBER: ${{ github.run_number }}
-          WORKFLOW: ${{ github.workflow }}
-          BRANCH: ${{ github.ref_name }}
-          SHA: ${{ github.sha }}
-          ACTOR: ${{ github.actor }}
-          EVENT: ${{ github.event_name }}
-          CONCLUSION: ${{ needs.build.result }} # success | failure | cancelled | skipped
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          CONTENT: ${{ steps.msg.outputs.content }}
         run: |
-          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
-            echo "Missing DISCORD_WEBHOOK_URL secret"; exit 1
-          fi
-
-          if [ "$CONCLUSION" = "success" ]; then
-            COLOR=3066993    # green
-            EMOJI="✅"
-          elif [ "$CONCLUSION" = "failure" ]; then
-            COLOR=15158332   # red
-            EMOJI="❌"
-          else
-            COLOR=15105570   # yellow
-            EMOJI="⚠️"
-          fi
-
-          RUN_URL="https://github.com/$REPO/actions/runs/$RUN_ID"
-          SHORT_SHA=$(echo "$SHA" | cut -c1-7)
-
-          # Build a Discord embed payload
-          read -r -d '' JSON <<EOF
-          {
-            "username": "GitHub Actions",
-            "embeds": [{
-              "title": "$EMOJI $WORKFLOW #$RUN_NUMBER — $CONCLUSION",
-              "url": "$RUN_URL",
-              "color": $COLOR,
-              "fields": [
-                {"name": "Repository", "value": "$REPO", "inline": true},
-                {"name": "Branch", "value": "$BRANCH", "inline": true},
-                {"name": "Commit", "value": "\`$SHORT_SHA\`", "inline": true},
-                {"name": "Triggered by", "value": "$ACTOR", "inline": true},
-                {"name": "Event", "value": "$EVENT", "inline": true}
-              ],
-              "footer": {"text": "Open the run for logs and artifacts"}
-            }]
-          }
-          EOF
-
-          # You can paste the curl payload here (same as before)
-          echo "This is where we would post to Discord."
-
-          curl -sS -X POST -H "Content-Type: application/json" \
-            -d "$JSON" "$DISCORD_WEBHOOK_URL"
-
-        
+          # Ubuntu images have jq preinstalled
+          PAYLOAD=$(jq -n --arg content "$CONTENT" '{content: $content}')
+          curl -sS -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
