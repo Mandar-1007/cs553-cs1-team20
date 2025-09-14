@@ -39,7 +39,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           CONCLUSION: ${{ needs.build.result }} # success | failure | cancelled | skipped
         run: |
-          if [ -z "$WEBHOOK_URL" ]; then
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
             echo "Missing DISCORD_WEBHOOK_URL secret"; exit 1
           fi
 
@@ -78,4 +78,4 @@ jobs:
           EOF
 
           curl -sS -X POST -H "Content-Type: application/json" \
-            -d "$JSON" "$WEBHOOK_URL"
+            -d "$JSON" "$DISCORD_WEBHOOK_URL"
