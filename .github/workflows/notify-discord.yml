@@ -1,0 +1,81 @@
+name: Build & Notify Discord
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ----- Your real build/test steps here -----
+      - name: Example build step
+        run: echo "Pretend we're building…"
+      - name: Example test step
+        run: echo "Pretend we're testing…"
+      # -------------------------------------------
+
+  notify:
+    # run no matter what the build did
+    if: always()
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post status to Discord
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+          WORKFLOW: ${{ github.workflow }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          EVENT: ${{ github.event_name }}
+          CONCLUSION: ${{ needs.build.result }} # success | failure | cancelled | skipped
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "Missing DISCORD_WEBHOOK_URL secret"; exit 1
+          fi
+
+          if [ "$CONCLUSION" = "success" ]; then
+            COLOR=3066993    # green
+            EMOJI="✅"
+          elif [ "$CONCLUSION" = "failure" ]; then
+            COLOR=15158332   # red
+            EMOJI="❌"
+          else
+            COLOR=15105570   # yellow
+            EMOJI="⚠️"
+          fi
+
+          RUN_URL="https://github.com/$REPO/actions/runs/$RUN_ID"
+          SHORT_SHA=$(echo "$SHA" | cut -c1-7)
+
+          # Build a Discord embed payload
+          read -r -d '' JSON <<EOF
+          {
+            "username": "GitHub Actions",
+            "embeds": [{
+              "title": "$EMOJI $WORKFLOW #$RUN_NUMBER — $CONCLUSION",
+              "url": "$RUN_URL",
+              "color": $COLOR,
+              "fields": [
+                {"name": "Repository", "value": "$REPO", "inline": true},
+                {"name": "Branch", "value": "$BRANCH", "inline": true},
+                {"name": "Commit", "value": "\`$SHORT_SHA\`", "inline": true},
+                {"name": "Triggered by", "value": "$ACTOR", "inline": true},
+                {"name": "Event", "value": "$EVENT", "inline": true}
+              ],
+              "footer": {"text": "Open the run for logs and artifacts"}
+            }]
+          }
+          EOF
+
+          curl -sS -X POST -H "Content-Type: application/json" \
+            -d "$JSON" "$WEBHOOK_URL"
