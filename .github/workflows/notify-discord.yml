@@ -19,13 +19,19 @@ jobs:
       - name: Example test step
         run: echo "Pretend we're testing…"
       # -------------------------------------------
-
   notify:
-    # run no matter what the build did
     if: always()
     needs: [build]
     runs-on: ubuntu-latest
+
     steps:
+      - name: Secret visibility check
+        if: ${{ secrets.DISCORD_WEBHOOK_URL == '' }}
+        run: |
+          echo "DISCORD_WEBHOOK_URL is NOT visible to this workflow (empty or not set)."
+          echo "If you used an Environment secret, set 'jobs.notify.environment: <name>' or move it to Repository secrets."
+          exit 1
+  
       - name: Post status to Discord
         env:
           WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
@@ -77,5 +83,10 @@ jobs:
           }
           EOF
 
+          # You can paste the curl payload here (same as before)
+          echo "This is where we would post to Discord."
+
           curl -sS -X POST -H "Content-Type: application/json" \
             -d "$JSON" "$DISCORD_WEBHOOK_URL"
+
+        
